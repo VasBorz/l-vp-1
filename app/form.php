@@ -1,15 +1,16 @@
 <?php
 //DB connection
 include('db.class.php');
+include ('functions.php');
 
 //Protect to check this file via browser
 if(empty($_POST)){
-//    header('../index.html?massage=protect');
+    header('Location: ../index.html?massage=protect');
 }
 
 //Check if some fields is empty for example (better to check via JS)
 if(empty($_POST['email']) || empty($_POST['phone'])){
-//    header('../index.html?massage=emptyFields');
+    header('Location: ../index.html?massage=emptyFields');
 }
 
 $u_address = 'Street: '. $_POST['street'] . 'Home: '.$_POST['home'] . 'A: '.$_POST['part'] . $_POST['appt'] . $_POST['floor'];
@@ -23,71 +24,42 @@ $conn = $instance->getConnection();
 
 //---STEP 1---//
 //Send query to DB to check if user exists
-try {
-    $foo = queryDb($conn,'SELECT * FROM burger.users WHERE email = ?',[$_POST['email']]);
-    print_r($foo);
-} catch (Exception $e) {
-    die("Oh noes! There's an error in the query!");
-}
+$sql_sel = 'SELECT * FROM burger.users WHERE email = ?';
+$sql_ins_usr = 'INSERT INTO burger.users (user_name, email, phone) values (?, ?, ?)';
+$sql_ins_ord = 'INSERT INTO burger.orders (id_user, address, comment, payment, callback) values (?, ?, ?, ?, ?)';
+$sql_sel_ord = 'SELECT o.id ,o.address, o.comment, o.payment, o.callback, u.phone, u.user_name, u.email FROM burger.users AS u LEFT JOIN burger.orders AS o ON u.id = o.id_user where o.id_user = ?';
+$foo = queryDb($conn,$sql_sel,[$_POST['email']]);
 
 if ( isset($foo) && empty($foo) ){
-    try {
-        queryDb($conn,'INSERT INTO burger.users (user_name, email, phone) values (?, ?, ?)', [$_POST['name'], $_POST['email'], $_POST['phone']]);
-        queryDb($conn,'INSERT INTO burger.orders (id_user, address, comment, payment, callback) values (?,?,?,?,?)', [$foo[0]['id'], $u_address, $_POST['comment'], $payment, $callback]);
-        session_start();
-        $_SESSION['user'] = true;
-    } catch (Exception $e) {
-        die("Oh noes! There's an error in the query!");
-    }
-}else if( !empty($foo) ){
+    queryDb($conn,$sql_ins_usr, [$_POST['name'], $_POST['email'], $_POST['phone']]);
+    $foo = queryDb($conn,$sql_sel,[$_POST['email']]);
+}
+
+if( !empty($foo) ){
+    queryDb($conn, $sql_ins_ord, [$foo[0]['id'], $u_address, $_POST['comment'], $payment, $callback]);
     session_start();
     $_SESSION['user'] = true;
-    queryDb($conn,'INSERT INTO burger.orders (id_user, address, comment, payment, callback) values (?,?,?,?,?)',[$foo[0]['id'],$u_address,$_POST['comment'],$payment,$callback]);
 
     //---STEP 3---//
-    $foo = queryDb($conn,'SELECT orders.id ,orders.address, orders.comment, orders.payment, orders.callback, users.phone, users.user_name, users.email FROM burger.users LEFT JOIN burger.orders ON users.id = orders.id_user where orders.id_user = ?',[$foo[0]['id']]);
-
-    if (count($foo) === 1){
-        echo 'This is your first order: ' . $foo['id'];
-    }
-    if(count($foo) > 1){
+    $foo = queryDb($conn,$sql_sel_ord,[$foo[0]['id']]);
+    if(count($foo) >= 1){
         $arr = [
-            'Order_Number' => "Заказ № " . $foo[sizeof($foo)-1]['id'] . PHP_EOL,
+            'Order_Number' => 'Заказ № ' . $foo[sizeof($foo)-1]['id'] . PHP_EOL,
             'Address'      => 'Ваш заказ будет доставлен по адресу: '. $foo[sizeof($foo)-1]['address'] . PHP_EOL,
             'Product'      => 'DarkBeefBurger за 500 рублей, 1 шт.' . PHP_EOL,
             'Comment'      => 'Спасибо! Это уже '. count($foo) . ' заказ.' . PHP_EOL,
             'Date'          => 'Date of order: ' . date('Y-m-d',time()) . PHP_EOL
         ];
+        if (count($foo) === 1){
+           $arr['Order_Number'] = 'This is your first order:№ ' . $foo[sizeof($foo)-1]['id'] . PHP_EOL;
+        }
         $file = '../orders/order' . $foo[sizeof($foo)-1]['id'] .'.txt';
 
         file_put_contents($file, $arr);
+    }else{
+        echo 'Something wrong with writing orders to db';
     }
-//    header('../index.html?massage=successfully');
+    header('Location: ../index.html?massage=successfully');
 }else{
     echo 'Something goes wrong, Please check your configuration';
-}
-
-function queryDb($conn,$sql,$bind) {
-    if(preg_match('/^INSERT/',$sql)){
-        echo '<pre>';
-        print_r(implode(', ',$bind));
-        echo '</pre>';
-        try {
-            $rs = $conn->prepare($sql);
-            $rs->execute([implode(', ',$bind)]);
-        }
-        catch (Exception $e) {
-            die("Oh noes! There's an error in the query!");
-        }
-    }
-    if(preg_match('/^SELECT/',$sql)){
-        try {
-            $rs = $conn->prepare($sql);
-            $rs->execute([implode(', ',$bind)]);
-            return $rs->fetchAll();
-        }
-        catch (Exception $e) {
-            die("Oh noes! There's an error in the query!");
-        }
-    }
 }
